@@ -1,0 +1,48 @@
+version: 2.1
+
+orbs:
+  kublr-api: kublr/kublr-api@dev:latest
+
+workflows:
+  version: 2
+  main:
+    jobs:
+      - test-build:
+          context: test-kublr-api
+
+jobs:
+  test-build:
+    docker:
+      - image: circleci/node:9.9.0
+    steps:
+      - checkout
+      - kublr-api/auth
+      - run:
+          name: Print Kublr API token
+          command: 'echo "KUBLR_TOKEN=${KUBLR_TOKEN:-}"'
+      - kublr-api/call:
+          result-env-var: KUBLR_VERSION_JSON
+          result-file: kublr-version.json
+      - run:
+          name: Print Kublr API call results stored in an env var
+          command: 'echo "KUBLR_VERSION_JSON=${KUBLR_VERSION_JSON:-}"'
+      - run:
+          name: Print Kublr API call results stored in a file
+          command: 'cat kublr-version.json'
+      - kublr-api/get-cluster-config:
+          kublr-space: demo
+          kublr-cluster: aws-demo-1
+      - run:
+          name: Print KUBECONFIG env var
+          command: 'echo "KUBECONFIG=${KUBECONFIG:-}"'
+      - run:
+          name: Print Kubernetes config file content
+          command: |
+            echo "Kubernetes config in '${KUBECONFIG:-}' file:"
+            cat "${KUBECONFIG:-}"
+      - run:
+          name: Prepare kubectl tool
+          command: 'curl https://storage.googleapis.com/kubernetes-release/release/v1.10.7/bin/linux/amd64/kubectl > kubectl && chmod a+x kubectl'
+      - run:
+          name: Run kubectl command
+          command: './kubectl get nodes'

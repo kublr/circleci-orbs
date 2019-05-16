@@ -1,0 +1,284 @@
+version: 2.1
+
+description: |
+  Kublr is an enterprise Kubernetes management platform that enables organizations to centrally deploy,
+  run, and manage Kubernetes clusters across multiple environments with a comprehensive container management
+  platform that finally delivers on the Kubernetes promise. Optimized for large enterprises, Kublr is
+  designed to provide multi-cluster deployments and observability.
+  Kublr - https://www.kublr.com
+  Kublr Documentation - https://docs.kublr.com
+  Orb source code - https://github.com/kublr/circleci-orbs
+
+examples:
+  simple_authentication:
+    description: >
+      Authenticate with Kublr API with API endpoint, username, and password
+      in KUBLR_ENDPOINT, KUBLR_USERNAME, and KUBLR_PASSWORD env vars correspondingly.
+      Normally you would set these environment variables via CircleCI contexts.
+      Resulting authentication token is stored in KUBLR_TOKEN env var.
+    usage:
+      version: 2.1
+      orbs:
+        kublr-api: kublr/kublr-api@dev
+      jobs:
+        build:
+          docker:
+            - image: circleci/node:9.9.0
+          steps:
+            - kublr-api/auth
+  parameterized_authentication:
+    description: >
+      Authenticate with Kublr API with non-default API endpoint, username, password,
+      and resulting token env var names passed directly.
+    usage:
+      version: 2.1
+      orbs:
+        kublr-api: kublr/kublr-api@dev
+      jobs:
+        build:
+          docker:
+            - image: circleci/node:9.9.0
+          steps:
+            - kublr-api/auth:
+                kublr-endpoint: KUBLR_DEV_ENDPOINT
+                kublr-username: KUBLR_DEV_USERNAME
+                kublr-password: KUBLR_DEV_PASSWORD
+                kublr-token:    KUBLR_DEV_TOKEN
+  api_call:
+    description: >
+      Call Kublr API with specified HTTP method, path, and optionally input data. The method assumes that
+      authenticaiton is already performed and the token is stored in KUBLR_TOKEN env var.
+    usage:
+      version: 2.1
+      orbs:
+        kublr-api: kublr/kublr-api@dev
+      jobs:
+        build:
+          docker:
+            - image: circleci/node:9.9.0
+          steps:
+            - kublr-api/auth
+            - kublr-api/call:
+                call-method: DELETE
+                call-path: '/api/spaces/my-space/cluster/my-cluster'
+  get_and_configure_kubernetes_config:
+    description: >
+      Acquire Kubernetes config via Kublr API, save it in a file and configure it for use with kubectl.
+      The method assumes that authenticaiton is already performed and the token is stored in KUBLR_TOKEN env var.
+    usage:
+      version: 2.1
+      orbs:
+        kublr-api: kublr/kublr-api@dev
+      jobs:
+        build:
+          docker:
+            - image: circleci/node:9.9.0
+          steps:
+            - kublr-api/auth
+            - kublr-api/get-cluster-config:
+                kublr-space: demo
+                kublr-cluster: aws-demo-1
+            - run: |
+                echo "Kubernetes config in '${KUBECONFIG:-}' file:"
+                cat "${KUBECONFIG:-}"
+            - run:
+                name: 'Setup kubectl'
+                command: 'curl https://storage.googleapis.com/kubernetes-release/release/v1.10.7/bin/linux/amd64/kubectl > kubectl && chmod a+x kubectl'
+            - run:
+                name: 'Test kubectl with kubeconfig'
+                command: './kubectl get nodes'
+  full_example:
+    description: >
+      This example shows full sequence of operations with Kublr control plane: authentication,
+      API calls (possibly including Kubernetes cluster creation, status checks, deletion etc),
+      acquisition of Kubernetes cluster config file, and download, setup, and using kubectl tool.
+      Authentication with Kublr API relies on the API endpoint, username, and password provided
+      in KUBLR_ENDPOINT, KUBLR_USERNAME, and KUBLR_PASSWORD env vars correspondingly.
+      Normally you would set these environment variables via CircleCI contexts.
+    usage:
+      version: 2.1
+      orbs:
+        kublr-api: kublr/kublr-api@dev
+      jobs:
+        build:
+          docker:
+            - image: circleci/node:9.9.0
+          steps:
+            - checkout
+            - kublr-api/auth
+            - run:
+                name: Print Kublr API token
+                command: 'echo "KUBLR_TOKEN=${KUBLR_TOKEN:-}"'
+            - kublr-api/call:
+                result-env-var: KUBLR_VERSION_JSON
+                result-file: kublr-version.json
+            - run:
+                name: Print Kublr API call results stored in an env var
+                command: 'echo "KUBLR_VERSION_JSON=${KUBLR_VERSION_JSON:-}"'
+            - run:
+                name: Print Kublr API call results stored in a file
+                command: 'cat kublr-version.json'
+            - kublr-api/get-cluster-config:
+                kublr-space: demo
+                kublr-cluster: aws-demo-1
+            - run:
+                name: Print KUBECONFIG env var
+                command: 'echo "KUBECONFIG=${KUBECONFIG:-}"'
+            - run:
+                name: Print Kubernetes config file content
+                command: |
+                  echo "Kubernetes config in '${KUBECONFIG:-}' file:"
+                  cat "${KUBECONFIG:-}"
+            - run:
+                name: Prepare kubectl tool
+                command: 'curl https://storage.googleapis.com/kubernetes-release/release/v1.10.7/bin/linux/amd64/kubectl > kubectl && chmod a+x kubectl'
+            - run:
+                name: Run kubectl command
+                command: './kubectl get nodes'
+
+commands:
+  auth:
+    description: >
+      Authenticate in Kublr Control Plane. Kublr endpoint, username, and password should
+      be configuered in KUBLR_ENDPOINT, KUBLR_USERNAME, and KUBLR_PASSWORD env vars (normally
+      configured via contexts). Kublr API authentication token will be stored in KUBLR_TOKEN
+      environment variable, or refreshed if necessary. Optionally the names of the environment
+      variables may be overriden in the parameters.
+    parameters:
+      kublr-endpoint:
+        type: env_var_name
+        description: Kublr Control Plane URL (MUST NOT include trailing slash), e.g. 'https://my-kublr-kcp.my-org.com'
+        default: KUBLR_ENDPOINT
+      kublr-username:
+        type: env_var_name
+        description: Kublr Control Plane Username
+        default: KUBLR_USERNAME
+      kublr-password:
+        type: env_var_name
+        description: Kublr Control Plane Password
+        default: KUBLR_PASSWORD
+      kublr-token:
+        type: env_var_name
+        description: Kublr Control Plane Password
+        default: KUBLR_TOKEN
+    steps:
+      - run:
+          name: "Kublr authenticate"
+          command: |
+            if [ -n "${<<parameters.kublr-token>>:-}" ] ; then
+              if ! curl -s -f -H "Authorization: Bearer ${<<parameters.kublr-token>>:-}" "${<<parameters.kublr-endpoint>>}/api/meta/version" > /dev/null ; then
+                echo "Kublr token is expired, refresh"
+                export <<parameters.kublr-token>>=
+              else
+                echo "Kublr token is valid"
+              fi
+            fi
+            if [ -z "${<<parameters.kublr-token>>:-}" ] ; then
+              echo "Refreshing Kublr token with endpoint '${<<parameters.kublr-endpoint>>:-}' and user '${<<parameters.kublr-username>>:-}'"
+              KUBLR_RESPONSE="$(curl -s \
+                -d "grant_type=password" \
+                -d "client_id=kublr-ui" \
+                -d "username=${<<parameters.kublr-username>>}" \
+                -d "password=${<<parameters.kublr-password>>}" \
+                "${<<parameters.kublr-endpoint>>}/auth/realms/kublr-ui/protocol/openid-connect/token")"
+              export <<parameters.kublr-token>>="$(echo "${KUBLR_RESPONSE:-}" | jq -r '.access_token // empty')"
+              if [ -n "${<<parameters.kublr-token>>:-}" ]; then
+                echo "Kublr token refresh successful"
+                echo "export <<parameters.kublr-token>>='${<<parameters.kublr-token>>}'" >> $BASH_ENV
+              else
+                echo "Kublr token refresh failed, response: ${KUBLR_RESPONSE}"
+                exit 1
+              fi
+            fi
+  call:
+    description: >
+      Call Kublr API given an HTTP method (GET, POST, DELETE etc), API URL path ('/api/meta/version'
+      by default), and optionally data to send (e.g. Kublr Kubernetes JSON cluster specification
+      document). The command relies on Kublr API authentication token available in KUBLR_TOKEN
+      env var; you can use 'auth' command to get or refresh it.
+    parameters:
+      kublr-endpoint:
+        type: env_var_name
+        description: Kublr Control Plane URL
+        default: KUBLR_ENDPOINT
+      kublr-token:
+        type: env_var_name
+        description: Kublr Control Plane Password
+        default: KUBLR_TOKEN
+      call-method:
+        type: string
+        description: Method to use when calling API (GET, POST, DELETE etc)
+        default: GET
+      call-path:
+        type: string
+        description: API path to call
+        default: /api/meta/version
+      call-data-file:
+        type: string
+        description: File with data to send with a call, e.g. JSON cluster spec for cluster creation call.
+        default: ''
+      result-env-var:
+        type: string
+        description: Env var to use to save result (none if empty)
+        default: ''
+      result-file:
+        type: string
+        description: File to save the result to (none if empty)
+        default: ''
+    steps:
+      - run:
+          name: "Kublr API call"
+          command: |
+            DATA=''
+            if [ -n '<<parameters.call-data-file>>' ] ; then
+              DATA='--data "@<<parameters.call-data-file>>"'
+            fi
+            OUT="$(curl -s -f -H "Authorization: Bearer ${<<parameters.kublr-token>>:-}" "-X<<parameters.call-method>>" ${DATA:-} "${<<parameters.kublr-endpoint>>}<<parameters.call-path>>")"
+            if [ "$?" != '0' ] ; then
+              echo "Kublr API call -X'<<parameters.call-method>>' '${<<parameters.kublr-endpoint>>}<<parameters.call-path>>' failed, result: ${OUT:-}"
+              exit 1
+            fi
+            echo "Kublr API call -X'<<parameters.call-method>>' '${<<parameters.kublr-endpoint>>}<<parameters.call-path>>' successful"
+            if [ -n '<<parameters.result-file>>' ] ; then
+              echo "Saving the result to file '<<parameters.result-file>>'"
+              echo "${OUT:-}" > '<<parameters.result-file>>'
+            fi
+            if [ -n '<<parameters.result-env-var>>' ] ; then
+              echo "Saving the result to env var '<<parameters.result-env-var>>'"
+              echo "export <<parameters.result-env-var>>='${OUT:-}'" >> $BASH_ENV
+            fi
+  get-cluster-config:
+    description: >
+      Retrieve a kubectl config file for a Kublr Kubernetes cluster and configure it for
+      use by kubectl tool. The config is saved in a file and KUBECONFIG environment variable
+      is set correspondingly. The command relies on Kublr API authentication token available
+      in KUBLR_TOKEN env var; you can use 'auth' command to get or refresh it.
+    parameters:
+      kublr-space:
+        type: string
+        description: Kublr space name
+        default: 'default'
+      kublr-cluster:
+        type: string
+        description: Kublr cluster name
+        default: ''
+      kubeconfig-env-var:
+        type: env_var_name
+        description: Env var for Kubernetes config path (set to empty if need not be set)
+        default: 'KUBECONFIG'
+      kubeconfig-file:
+        type: string
+        description: File for Kubernetes config
+        default: 'config'
+    steps:
+      - call:
+          call-path: '/api/spaces/<<parameters.kublr-space>>/cluster/<<parameters.kublr-cluster>>/config'
+          result-file: '<<parameters.kubeconfig-file>>'
+      - run:
+          name: Configure Kubernetes Config file
+          command: |
+            if [ -n '<<parameters.kubeconfig-env-var>>' ] ; then
+              export <<parameters.kubeconfig-env-var>>="$(readlink -f '<<parameters.kubeconfig-file>>')"
+              echo "Setting env var '<<parameters.kubeconfig-env-var>>' to '${<<parameters.kubeconfig-env-var>>:-}'"
+              echo "export <<parameters.kubeconfig-env-var>>='${<<parameters.kubeconfig-env-var>>:-}'" >> $BASH_ENV
+            fi
