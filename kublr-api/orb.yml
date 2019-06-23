@@ -129,9 +129,9 @@ examples:
                 command: |
                   echo "Kubernetes config in '${KUBECONFIG:-}' file:"
                   cat "${KUBECONFIG:-}"
-            - run:
-                name: Prepare kubectl tool
-                command: 'curl https://storage.googleapis.com/kubernetes-release/release/v1.10.7/bin/linux/amd64/kubectl > kubectl && chmod a+x kubectl'
+            - kublr-api/get-kubernetes-client:
+                kublr-space: demo
+                kublr-cluster: aws-demo-1
             - run:
                 name: Run kubectl command
                 command: './kubectl get nodes'
@@ -161,12 +161,20 @@ commands:
         type: env_var_name
         description: Kublr Control Plane Password
         default: KUBLR_TOKEN
+      insecure:
+        type: boolean
+        description: Do not check ssl certificate for https requests to kublr API
+        default: false
     steps:
       - run:
           name: "Kublr authenticate"
           command: |
+            CURL_PARAMS=''
+            if [ "<<parameters.insecure>>" == "true" ]; then
+              CURL_PARAMS='-k'
+            fi
             if [ -n "${<<parameters.kublr-token>>:-}" ] ; then
-              if ! curl -s -f -H "Authorization: Bearer ${<<parameters.kublr-token>>:-}" "${<<parameters.kublr-endpoint>>}/api/meta/version" > /dev/null ; then
+              if ! curl $CURL_PARAMS -s -f -H "Authorization: Bearer ${<<parameters.kublr-token>>:-}" "${<<parameters.kublr-endpoint>>}/api/meta/version" > /dev/null ; then
                 echo "Kublr token is expired, refresh"
                 export <<parameters.kublr-token>>=
               else
@@ -175,7 +183,7 @@ commands:
             fi
             if [ -z "${<<parameters.kublr-token>>:-}" ] ; then
               echo "Refreshing Kublr token with endpoint '${<<parameters.kublr-endpoint>>:-}' and user '${<<parameters.kublr-username>>:-}'"
-              KUBLR_RESPONSE="$(curl -s \
+              KUBLR_RESPONSE="$(curl $CURL_PARAMS -s \
                 -d "grant_type=password" \
                 -d "client_id=kublr-ui" \
                 -d "username=${<<parameters.kublr-username>>}" \
@@ -225,15 +233,24 @@ commands:
         type: string
         description: File to save the result to (none if empty)
         default: ''
+      insecure:
+        type: boolean
+        description: Do not check ssl certificate for https requests to kublr API
+        default: false
     steps:
       - run:
           name: "Kublr API call"
           command: |
-            DATA=''
-            if [ -n '<<parameters.call-data-file>>' ] ; then
-              DATA='--data "@<<parameters.call-data-file>>"'
+            PARAMS=(-s -f -H 'Content-Type: application/json' -H 'Accept: application/json' -H 'Authorization: bearer '${<<parameters.kublr-token>>:-})
+            if [ -n './k8s/cluster-spec.json' ] ; then
+              PARAMS+=(--data '@<<parameters.call-data-file>>')
             fi
-            OUT="$(curl -s -f -H "Authorization: Bearer ${<<parameters.kublr-token>>:-}" "-X<<parameters.call-method>>" ${DATA:-} "${<<parameters.kublr-endpoint>>}<<parameters.call-path>>")"
+            if [ "<<parameters.insecure>>" == "true" ]; then
+              PARAMS+=(-k)
+            fi
+            API_URL="${<<parameters.kublr-endpoint>>}<<parameters.call-path>>"
+            echo "Call API URL ${API_URL}"
+            OUT="$(curl "${PARAMS[@]}" "-X<<parameters.call-method>>" "$API_URL")"
             if [ "$?" != '0' ] ; then
               echo "Kublr API call -X'<<parameters.call-method>>' '${<<parameters.kublr-endpoint>>}<<parameters.call-path>>' failed, result: ${OUT:-}"
               exit 1
@@ -270,10 +287,15 @@ commands:
         type: string
         description: File for Kubernetes config
         default: 'config'
+      insecure:
+        type: boolean
+        description: Do not check ssl certificate for https requests to kublr API
+        default: false
     steps:
       - call:
           call-path: '/api/spaces/<<parameters.kublr-space>>/cluster/<<parameters.kublr-cluster>>/config'
           result-file: '<<parameters.kubeconfig-file>>'
+          insecure: '<<parameters.insecure>>'
       - run:
           name: Configure Kubernetes Config file
           command: |
@@ -282,3 +304,94 @@ commands:
               echo "Setting env var '<<parameters.kubeconfig-env-var>>' to '${<<parameters.kubeconfig-env-var>>:-}'"
               echo "export <<parameters.kubeconfig-env-var>>='${<<parameters.kubeconfig-env-var>>:-}'" >> $BASH_ENV
             fi
+  get-kubernetes-client:
+    description: >
+      Get current kubernetes version from kublr configuration and download a kubernetes client (kubectl) from official
+      site. The version is saved to KUBEVER environment (by default) and download client to file "kubectl". The command
+      relies on Kublr API authentication token available in KUBLR_TOKEN env var; you can use 'auth' command to get
+      or refresh it.
+    parameters:
+      kublr-space:
+        type: string
+        description: Kublr space name
+        default: 'default'
+      kublr-cluster:
+        type: string
+        description: Kublr cluster name
+        default: ''
+      kubever-env-var:
+        type: env_var_name
+        description: Env var for Kubernetes version
+        default: 'KUBEVER'
+      kubectl-file:
+        type: string
+        description: File for Kubernetes config
+        default: 'kubectl'
+      insecure:
+        type: boolean
+        description: Do not check ssl certificate for https requests to kublr API
+        default: false
+    steps:
+      - call:
+          call-path: '/api/spaces/<<parameters.kublr-space>>/cluster/<<parameters.kublr-cluster>>/proxy/version'
+          result-env-var: 'KUBEVER_RESP'
+          insecure: <<parameters.insecure>>
+      - run:
+          name: Download kubernetes client
+          command: |
+            if [ -n '<<parameters.kubever-env-var>>' ] ; then
+              export <<parameters.kubever-env-var>>="$(echo $KUBEVER_RESP | jq -r '.gitVersion')"
+              echo "Setting env var '<<parameters.kubever-env-var>>' to '${<<parameters.kubever-env-var>>:-}'"
+              echo "export <<parameters.kubever-env-var>>='${<<parameters.kubever-env-var>>:-}'" >> $BASH_ENV
+            fi
+            curl "https://storage.googleapis.com/kubernetes-release/release/${<<parameters.kubever-env-var>>}/bin/linux/amd64/kubectl" \
+              -o "<<parameters.kubectl-file>>"
+            if [ "$?" != '0' ] ; then
+              echo "Kublr client download failed"
+              exit 1
+            fi
+            chmod a+x "<<parameters.kubectl-file>>"
+  create-cluster:
+    description: >
+      Creates cluster by json spec using API.
+    parameters:
+      kublr-space:
+        type: string
+        description: Kublr space name
+        default: 'default'
+      kublr-cluster:
+        type: string
+        description: Kublr cluster name
+        default: ''
+      kubever-env-var:
+        type: env_var_name
+        description: Env var for Kubernetes version
+        default: 'KUBEVER'
+      kubectl-file:
+        type: string
+        description: File for Kubernetes config
+        default: 'kubectl'
+      insecure:
+        type: boolean
+        description: Do not check ssl certificate for https requests to kublr API
+        default: false
+    steps:
+      - call:
+          call-path: '/api/spaces/<<parameters.kublr-space>>/cluster/<<parameters.kublr-cluster>>/proxy/version'
+          result-env-var: 'KUBEVER_RESP'
+          insecure: <<parameters.insecure>>
+      - run:
+          name: Download kubernetes client
+          command: |
+            if [ -n '<<parameters.kubever-env-var>>' ] ; then
+              export <<parameters.kubever-env-var>>="$(echo $KUBEVER_RESP | jq -r '.gitVersion')"
+              echo "Setting env var '<<parameters.kubever-env-var>>' to '${<<parameters.kubever-env-var>>:-}'"
+              echo "export <<parameters.kubever-env-var>>='${<<parameters.kubever-env-var>>:-}'" >> $BASH_ENV
+            fi
+            curl "https://storage.googleapis.com/kubernetes-release/release/${<<parameters.kubever-env-var>>}/bin/linux/amd64/kubectl" \
+              -o "<<parameters.kubectl-file>>"
+            if [ "$?" != '0' ] ; then
+              echo "Kublr client download failed"
+              exit 1
+            fi
+            chmod a+x kubectl
