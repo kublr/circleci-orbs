@@ -1,4 +1,6 @@
-# Kublr CircleCi Orbs
+# Kublr CircleCi Orbs ![CircleCI status](https://circleci.com/gh/kublr/circleci-orbs.svg?style=shield "CircleCI status") [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/kublr/circleci-orbs/master/LICENSE)
+
+- `kublr/kublr-api`: [![CircleCI Orb Version](https://img.shields.io/badge/endpoint.svg?url=https://badges.circleci.io/orb/kublr/kublr-api)](https://circleci.com/orbs/registry/orb/kublr/kublr-api)
 
 The orbs are tested in .circleci/config.yaml of this repo.
 Finished orbs will be published to the public CircleCi orb repository.
