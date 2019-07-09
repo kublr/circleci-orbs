@@ -31,7 +31,7 @@ jobs:
           command: 'cat kublr-version.json'
       - kublr-api/get-cluster-config:
           kublr-space: demo
-          kublr-cluster: aws-demo-1
+          kublr-cluster: aws-demo
       - run:
           name: Print KUBECONFIG env var
           command: 'echo "KUBECONFIG=${KUBECONFIG:-}"'
