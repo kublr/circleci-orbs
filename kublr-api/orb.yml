@@ -5,9 +5,11 @@ description: |
   run, and manage Kubernetes clusters across multiple environments with a comprehensive container management
   platform that finally delivers on the Kubernetes promise. Optimized for large enterprises, Kublr is
   designed to provide multi-cluster deployments and observability.
-  Kublr - https://www.kublr.com
   Kublr Documentation - https://docs.kublr.com
-  Orb source code - https://github.com/kublr/circleci-orbs
+display:
+  home_url: https://www.kublr.com
+  source_url: https://github.com/kublr/circleci-orbs
+  
 
 examples:
   simple_authentication:
